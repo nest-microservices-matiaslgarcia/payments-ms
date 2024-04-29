@@ -1,15 +1,22 @@
-import { Injectable } from '@nestjs/common';
+import { BadRequestException, Inject, Injectable, Logger } from '@nestjs/common';
 import { CreatePaymentDto } from './dto/create-payment.dto';
 import Stripe from 'stripe';
-import { envs } from 'src/config';
+import { NATS_SERVERS, envs } from 'src/config';
 import { Request, Response } from 'express';
+import { ClientProxy } from '@nestjs/microservices';
 
 @Injectable()
 export class PaymentsService {
 
-  private readonly stripe = new Stripe(
-    envs.stripeSecret
-  )
+  private readonly stripe = new Stripe(envs.stripeSecret)
+  private readonly logger = new Logger('PaymentService')
+
+  constructor(
+    @Inject(NATS_SERVERS)
+    private readonly client: ClientProxy
+  ) { }
+
+
 
   async createPaymentSession(createPaymentDto: CreatePaymentDto) {
 
@@ -41,9 +48,13 @@ export class PaymentsService {
         cancel_url: envs.stripeCancel
       })
 
-      return session
+      return {
+        cancelUrl: session.cancel_url,
+        successUrl: session.success_url,
+        url: session.url
+      }
     } catch (error) {
-
+      throw new BadRequestException(`Error: ${error}`);
     }
   }
 
@@ -55,16 +66,21 @@ export class PaymentsService {
 
     try {
       event = this.stripe.webhooks.constructEvent(req['rawBody'], sig, endpointSecret)
-      
-      switch(event.type){
+
+      switch (event.type) {
         case 'charge.succeeded':
-          console.log({
-            metadata: event.data.object,
-            orderId: event.data.object.metadata.orderId
-          })  
-        break
+          const chargeSucceeded = event.data.object
+          const payload = {
+            stripePaymentId: chargeSucceeded.id,
+            orderId: chargeSucceeded.metadata.orderId,
+            receiptUrl: chargeSucceeded.receipt_url
+          }
+          this.client.emit('payment.succeeded', payload)
+
+          break
+
         default:
-          console.log(`Event ${event.type} not handled`)  
+          console.log(`Event ${event.type} not handled`)
       }
     } catch (error) {
       res.status(400).send(`Webhook Error: ${error.message}`);

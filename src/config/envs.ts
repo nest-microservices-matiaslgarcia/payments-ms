@@ -37,6 +37,6 @@ export const envs = {
     stripeSuccess:  envVars.STRIPE_SUCCESS_URL,
     stripeCancel:envVars.STRIPE_CANCEL_URL,
     webhookSecret: envVars.WEBHOOK_SECRET,
-    NATS_SERVERS: envVars.NATS_SERVERS
+    natservers: envVars.NATS_SERVERS
 
 }
